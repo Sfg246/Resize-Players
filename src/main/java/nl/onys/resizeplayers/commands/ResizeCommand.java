@@ -13,122 +13,101 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class ResizeCommand implements CommandExecutor, TabCompleter {
+
     @Override
-    public boolean onCommand(CommandSender commandSender, Command command, String s, String[] args) {
-        if (!(commandSender instanceof Player)) {
-            MessageUtils.onOnlyPlayers(commandSender);
-            return true;
+    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if (args.length == 0) {
+            sender.sendMessage("§cUsage: /resize <blocks> [player/all]");
+            return false;
         }
 
-        Player player = (Player) commandSender;
-
-        switch (args.length) {
-            case 1:
-                return resizeSelf(player, args[0]);
-            case 2:
-                if (args[1].equalsIgnoreCase("all")) {
-                    return resizeAll(player, args[0]);
-                }
-                return resizeOther(player, args[0], args[1]);
-            default:
-                MessageUtils.onWrongUsage(player, "/resize <blocks> [player]");
-                return false;
+        // /resize <size>
+        if (args.length == 1) {
+            if (!(sender instanceof Player player)) {
+                MessageUtils.onOnlyPlayers(sender);
+                return true;
+            }
+            return resizeSelf(player, args[0]);
         }
+
+        // /resize <size> all
+        if (args[1].equalsIgnoreCase("all")) {
+            if (sender instanceof Player player) {
+                return resizeAll(player, args[0]);
+            } else {
+                return resizeAll(null, args[0]);
+            }
+        }
+
+        // /resize <size> <player>
+        return resizeOther(sender, args[0], args[1]);
     }
 
-    /**
-     * Resize the command sender
-     * @param player The player to resize
-     * @param size The size to resize to in blocks
-     * @return True if the player was resized, false otherwise
-     */
     private boolean resizeSelf(Player player, String size) {
         if (!player.hasPermission("resizeplayers.scale.self") && !player.isOp()) {
             MessageUtils.onNoPermission(player, "resizeplayers.scale.self");
             return false;
         }
         double[] sizes = validateAndConvertSize(player, size);
-        if (sizes == null) {
-            return false;
-        }
-        double blocksSize = sizes[0];
-        double scaleSize = sizes[1];
-
-        ScaleUtils.setPlayerScale(player, scaleSize, true, true);
-        MessageUtils.onScaledSelf(player, blocksSize);
+        if (sizes == null) return false;
+        ScaleUtils.setPlayerScale(player, sizes[1], true, true);
+        MessageUtils.onScaledSelf(player, sizes[0]);
         return true;
     }
 
-    /**
-     * Resize another player
-     * @param player The player resizing the target
-     * @param size The size to resize to in blocks
-     * @param target The target player to resize
-     * @return True if the target was resized, false otherwise
-     */
-    private boolean resizeOther(Player player, String size, String target) {
-        if (!player.hasPermission("resizeplayers.scale.others") && !player.isOp()) {
-            MessageUtils.onNoPermission(player, "resizeplayers.scale.others");
-            return false;
-        }
+    private boolean resizeOther(CommandSender sender, String size, String target) {
         Player targetPlayer = Bukkit.getPlayer(target);
         if (targetPlayer == null) {
-            MessageUtils.onPlayerNotFound(player, target);
+            if (sender != null) MessageUtils.onPlayerNotFound(sender, target);
             return false;
         }
-        if (targetPlayer.hasPermission("resizeplayers.scale.exempt") && player != targetPlayer) {
-            MessageUtils.onTargetExempt(player, targetPlayer.getName());
-            return false;
-        }
-        double[] sizes = validateAndConvertSize(player, size);
-        if (sizes == null) {
-            return false;
-        }
-        double blocksSize = sizes[0];
-        double scaleSize = sizes[1];
 
-        ScaleUtils.setPlayerScale(targetPlayer, scaleSize, true, true);
-        MessageUtils.onScaledOther(player, blocksSize, targetPlayer.getName());
+        if (sender instanceof Player player) {
+            if (!player.hasPermission("resizeplayers.scale.others") && !player.isOp()) {
+                MessageUtils.onNoPermission(player, "resizeplayers.scale.others");
+                return false;
+            }
+            if (targetPlayer.hasPermission("resizeplayers.scale.exempt") && player != targetPlayer) {
+                MessageUtils.onTargetExempt(player, targetPlayer.getName());
+                return false;
+            }
+        }
+
+        double[] sizes = validateAndConvertSize(sender, size);
+        if (sizes == null) return false;
+        ScaleUtils.setPlayerScale(targetPlayer, sizes[1], true, true);
+
+        if (sender instanceof Player player) {
+            MessageUtils.onScaledOther(player, sizes[0], targetPlayer.getName());
+        }
+
         return true;
     }
 
-    /**
-     * Resize all players
-     * @param player The player resizing all players
-     * @param size The size to resize to in blocks
-     * @return True if all players were resized, false otherwise
-     */
     private boolean resizeAll(Player player, String size) {
-        if (!player.hasPermission("resizeplayers.scale.all") && !player.isOp()) {
+        if (player != null && !player.hasPermission("resizeplayers.scale.all") && !player.isOp()) {
             MessageUtils.onNoPermission(player, "resizeplayers.scale.all");
             return false;
         }
+
         double[] sizes = validateAndConvertSize(player, size);
-        if (sizes == null) {
-            return false;
-        }
-        double blocksSize = sizes[0];
-        double scaleSize = sizes[1];
+        if (sizes == null) return false;
 
         for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
             if (onlinePlayer.hasPermission("resizeplayers.scale.exempt")) {
-                MessageUtils.onTargetExempt(player, onlinePlayer.getName());
+                if (player != null) MessageUtils.onTargetExempt(player, onlinePlayer.getName());
                 continue;
             }
-            ScaleUtils.setPlayerScale(onlinePlayer, scaleSize, true, true);
+            ScaleUtils.setPlayerScale(onlinePlayer, sizes[1], true, true);
         }
-        MessageUtils.onScaledAll(player, blocksSize);
+
+        if (player != null) MessageUtils.onScaledAll(player, sizes[0]);
+
         return true;
     }
 
-    /**
-     * Validate and convert the size to blocks and scale
-     * @param player The player resizing
-     * @param size The size to validate and convert
-     * @return The size in blocks and scale if valid, null otherwise
-     */
-    private double[] validateAndConvertSize(Player player, String size) {
-        if (!ScaleUtils.isValidSize(player, size)) {
+    private double[] validateAndConvertSize(CommandSender sender, String size) {
+        if (!ScaleUtils.isValidSize(sender, size)) {
             return null;
         }
         double blocksSize;
@@ -144,7 +123,7 @@ public class ResizeCommand implements CommandExecutor, TabCompleter {
     }
 
     @Override
-    public List<String> onTabComplete(CommandSender commandSender, Command command, String s, String[] args) {
+    public List<String> onTabComplete(CommandSender sender, Command command, String s, String[] args) {
         switch (args.length) {
             case 1: {
                 String[] defaultOptions = {"0.5", "0.75", "1", "1.25", "1.5", "1.75", "2", "2.25", "2.5", "2.75", "3", "default"};
